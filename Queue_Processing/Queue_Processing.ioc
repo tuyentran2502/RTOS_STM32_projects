@@ -1,8 +1,10 @@
 #MicroXplorer Configuration settings - do not modify
 FREERTOS.FootprintOK=true
-FREERTOS.IPParameters=Tasks01,FootprintOK,Queues01
+FREERTOS.IPParameters=Tasks01,FootprintOK,Queues01,configUSE_TIMERS,Timers01
 FREERTOS.Queues01=cmd_queue,10,char*,0,Dynamic,NULL,NULL
-FREERTOS.Tasks01=Task3,0,500,Task3_cmd_processing,Default,NULL,Dynamic,NULL,NULL;Task1,0,500,Task1_Display_menu,Default,NULL,Dynamic,NULL,NULL;Task2,0,500,Task2_cmd_handling,Default,NULL,Dynamic,NULL,NULL;Task4,0,500,Task4_Uart_write,Default,NULL,Dynamic,NULL,NULL
+FREERTOS.Tasks01=Task3,0,500,Task3_cmd_processing,Default,NULL,Dynamic,NULL,NULL;Task1,-1,500,Task1_Display_menu,Default,NULL,Dynamic,NULL,NULL;Task2,0,500,Task2_cmd_handling,Default,NULL,Dynamic,NULL,NULL;Task4,0,500,Task4_Uart_write,Default,NULL,Dynamic,NULL,NULL
+FREERTOS.Timers01=myTimer01,Callback01,osTimerPeriodic,Default,NULL,Dynamic,NULL
+FREERTOS.configUSE_TIMERS=1
 File.Version=6
 GPIO.groupedBy=Group By Peripherals
 KeepUserPlacement=false

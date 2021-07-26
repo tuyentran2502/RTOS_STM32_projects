@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stdio.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,6 +38,12 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+#define LED_ON_CMD   			 				1
+#define LED_OFF_CMD  			 				2
+#define LED_TOGGLE_CMD   					3
+#define LED_TOGGLE_STOP_CMD   		4
+#define LED_READ_STATUS   				5
+#define RTC_PRINT_DATETIME    		6
 
 /* USER CODE END PM */
 
@@ -50,8 +57,13 @@ osThreadId Task1Handle;
 osThreadId Task2Handle;
 osThreadId Task4Handle;
 osMessageQId cmd_queueHandle;
+osTimerId myTimer01Handle;
 /* USER CODE BEGIN PV */
 osMessageQId write_queueHandle;
+
+RTC_TimeTypeDef sTime;
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -63,36 +75,157 @@ void Task3_cmd_processing(void const * argument);
 void Task1_Display_menu(void const * argument);
 void Task2_cmd_handling(void const * argument);
 void Task4_Uart_write(void const * argument);
+void Callback01(void const * argument);
 
 /* USER CODE BEGIN PFP */
+
+
+
+uint8_t getCommandCode(uint8_t *buffer);
+void getArguments(uint8_t *buffer);
+
+
+ void make_led_on(void);
+ void make_led_off(void);
+ void led_toggle_start(void);
+ void led_toggle_stop(void);
+ void read_led_status(char task_msg[]);
+ void read_rtc_inf(char* task_msg);
+ void printf_error_message(char* task_msg);
+ 
+ 
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint8_t *pRxbufffer;
+
+char RxData[2];
+uint8_t command_buffer[20];
+uint8_t command_len=0;
 char message[100]={0};
-char str[]="hello";
 typedef struct APP_CMD
 	{
-		uint8_t COMMAND_NAME;
+		uint8_t COMMAND_NUM;
 		uint8_t COMMAND_ARG[10];
 	}APP_CMD_t;
 
-char menu[]={"\
-\r\n LED_ON   			 				----->1\
-\r\n LED_OFF   			 				----->2\
-\r\n LED_TOGGLE   					----->3\
-\r\n LED_TOGGLE_OFF   			----->4\
-\r\n LED_READ_STATUS    		----->5\
-\r\n RTC_PRINT_DATETIME    	----->6\
-\r\n EXIT_APP    						----->0\
-	\r\nType your option here : " };
+
+char menu[]={
+	"\
+	\r\n LED_ON   			 				:1\
+	\r\n LED_OFF   			 				:2\
+	\r\n LED_TOGGLE   					:3\
+	\r\n LED_TOGGLE_OFF   			:4\
+	\r\n LED_READ_STATUS    		:5\
+	\r\n RTC_PRINT_DATETIME    	:6\
+	\r\nType your option here : " 
+           };
 	
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-		HAL_UART_Transmit(&huart2,(uint8_t*)str,sizeof(str),500);
+	BaseType_t pxHigherPriorityTaskWoken =pdFALSE;
+	uint16_t data_byte;
+	
+	data_byte = USART2->DR;//data byte received from users
+	command_buffer[command_len++]=data_byte & 0xFF;
+	
+			command_len=0;
+			//then user is finished entering the data
+			//lets Notify the command-handling
+				xTaskNotifyFromISR(Task2Handle,0,eNoAction,&pxHigherPriorityTaskWoken);
+				xTaskNotifyFromISR(Task1Handle,0,eNoAction,&pxHigherPriorityTaskWoken);
+		
+		UART_Start_Receive_IT(&huart2,(uint8_t*)RxData,1);
+		//if the above RTos apis wake up any higher Piority task,then yield processing to th
+		//higher piorrity task which is just wkae up
+		if(pxHigherPriorityTaskWoken)
+			{
+				taskYIELD();
+			}	
 }	
+//helper function
+
+uint8_t getCommandCode(uint8_t *buffer)
+{
+	return buffer[0]-48;
+}	
+void getArguments(uint8_t *buffer)
+{
+	
+}	
+
+ void make_led_on(void)
+{
+	HAL_GPIO_WritePin(GPIOD,GPIO_PIN_12,GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GPIOD,GPIO_PIN_13,GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GPIOD,GPIO_PIN_14,GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GPIOD,GPIO_PIN_15,GPIO_PIN_SET);
+	
+}	
+ void make_led_off(void)
+{
+	HAL_GPIO_WritePin(GPIOD,GPIO_PIN_12,GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOD,GPIO_PIN_13,GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOD,GPIO_PIN_14,GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOD,GPIO_PIN_15,GPIO_PIN_RESET);
+}		
+void led_toggle_start(void)
+{
+		if(myTimer01Handle==NULL)
+		{
+      	//let create the software timer
+	     osTimerDef(myTimer01, Callback01);
+       myTimer01Handle = osTimerCreate(osTimer(myTimer01), osTimerPeriodic, NULL);
+       //start software timer
+	     osTimerStart(myTimer01Handle, 500);
+		}
+   else
+    {	
+			 osTimerStart(myTimer01Handle, 500);
+    }			
+}	
+
+void Callback01(void const * argument)
+{
+  /* USER CODE BEGIN Callback01 */
+  HAL_GPIO_TogglePin(GPIOD,GPIO_PIN_12);
+  /* USER CODE END Callback01 */
+}
+ void led_toggle_stop(void)
+{
+		osTimerStop(myTimer01Handle);
+}
+	
+ void read_led_status(char task_msg[])
+	{
+		sprintf(task_msg,"\r\nLed status is : %d \r\n",HAL_GPIO_ReadPin(GPIOD,GPIO_PIN_15));
+	  xQueueSend(write_queueHandle,(void*)&task_msg,portMAX_DELAY);
+	}	
+ void read_rtc_inf(char* task_msg)
+	{
+			uint8_t Seconds=0;
+			uint8_t Minutes=0;
+			uint8_t Hours=0;
+			
+			HAL_RTC_GetTime(&hrtc,&sTime,RTC_FORMAT_BCD);
+			
+			Hours=sTime.Hours ;
+			Minutes=sTime.Minutes;
+			Seconds=sTime.Seconds;
+		  sprintf(task_msg,"\r\n Time : \n%d:%d:%d \r\n",Hours,Minutes,Seconds);
+			xQueueSend(write_queueHandle,(void*)&task_msg,portMAX_DELAY);
+		
+	}	
+void printf_error_message(char* task_msg)
+	{
+
+		sprintf(task_msg,"\r\nInvalid command received\r\n"); 
+		
+	  xQueueSend(write_queueHandle,(void*)&task_msg,portMAX_DELAY);
+	
+	
+	}	
 /* USER CODE END 0 */
 
 /**
@@ -126,8 +259,9 @@ int main(void)
   MX_RTC_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-	HAL_UART_Transmit(&huart2,(uint8_t*)menu,sizeof(menu),500);
-	HAL_UART_Receive_IT(&huart2,pRxbufffer,1);
+
+	
+	UART_Start_Receive_IT(&huart2,(uint8_t*)RxData,1);
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -138,8 +272,15 @@ int main(void)
   /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
 
+  /* Create the timer(s) */
+  /* definition and creation of myTimer01 */
+  osTimerDef(myTimer01, Callback01);
+  myTimer01Handle = osTimerCreate(osTimer(myTimer01), osTimerPeriodic, NULL);
+
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
+	
+
   /* USER CODE END RTOS_TIMERS */
 
   /* Create the queue(s) */
@@ -148,7 +289,7 @@ int main(void)
   cmd_queueHandle = osMessageCreate(osMessageQ(cmd_queue), NULL);
 
   /* USER CODE BEGIN RTOS_QUEUES */
-	 osMessageQDef(write_queue, 10, char*);
+	 osMessageQDef(write_queue, 10, sizeof(char*));
   write_queueHandle = osMessageCreate(osMessageQ(write_queue), NULL);
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
@@ -159,7 +300,7 @@ int main(void)
   Task3Handle = osThreadCreate(osThread(Task3), NULL);
 
   /* definition and creation of Task1 */
-  osThreadDef(Task1, Task1_Display_menu, osPriorityNormal, 0, 500);
+  osThreadDef(Task1, Task1_Display_menu, osPriorityBelowNormal, 0, 500);
   Task1Handle = osThreadCreate(osThread(Task1), NULL);
 
   /* definition and creation of Task2 */
@@ -376,10 +517,37 @@ static void MX_GPIO_Init(void)
 void Task3_cmd_processing(void const * argument)
 {
   /* USER CODE BEGIN 5 */
+	APP_CMD_t *new_cmd;
+	char task_msg[50];
+	
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+     xQueueReceive(cmd_queueHandle,(void*)&new_cmd,portMAX_DELAY);
+		
+		if(new_cmd->COMMAND_NUM == LED_ON_CMD)
+			{
+				make_led_on();
+			}else if(new_cmd->COMMAND_NUM == LED_OFF_CMD)
+			{
+				make_led_off();
+			}else if(new_cmd->COMMAND_NUM == LED_TOGGLE_CMD)
+			{
+				led_toggle_start();
+			}else if(new_cmd->COMMAND_NUM == LED_TOGGLE_STOP_CMD)
+			{
+				led_toggle_stop();
+			}else if(new_cmd->COMMAND_NUM == LED_READ_STATUS)
+			{
+				read_led_status(task_msg);
+			}else if(new_cmd->COMMAND_NUM == RTC_PRINT_DATETIME)
+			{
+				read_rtc_inf(task_msg);
+			}else
+			{
+					printf_error_message(task_msg);
+			}	
+			vPortFree(new_cmd);
   }
   /* USER CODE END 5 */
 }
@@ -394,10 +562,13 @@ void Task3_cmd_processing(void const * argument)
 void Task1_Display_menu(void const * argument)
 {
   /* USER CODE BEGIN Task1_Display_menu */
+	char *pData=menu;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+		xQueueSend(write_queueHandle,&pData,portMAX_DELAY);
+		//lets wait until someone notifies
+    xTaskNotifyWait(0,0,NULL,portMAX_DELAY);
   }
   /* USER CODE END Task1_Display_menu */
 }
@@ -412,10 +583,22 @@ void Task1_Display_menu(void const * argument)
 void Task2_cmd_handling(void const * argument)
 {
   /* USER CODE BEGIN Task2_cmd_handling */
+	uint8_t command_code =0;
+	APP_CMD_t *new_cmd;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    xTaskNotifyWait(0,0,NULL,portMAX_DELAY);
+		
+			new_cmd=(APP_CMD_t*)pvPortMalloc(sizeof(APP_CMD_t));
+		//1.send command to queue
+		taskENTER_CRITICAL();
+		command_code=getCommandCode(command_buffer);
+		new_cmd=(APP_CMD_t*)pvPortMalloc(sizeof(APP_CMD_t));
+		new_cmd->COMMAND_NUM = command_code;
+		getArguments(new_cmd->COMMAND_ARG);
+		taskEXIT_CRITICAL();
+		xQueueSend(cmd_queueHandle,&new_cmd,portMAX_DELAY);
   }
   /* USER CODE END Task2_cmd_handling */
 }
@@ -430,13 +613,17 @@ void Task2_cmd_handling(void const * argument)
 void Task4_Uart_write(void const * argument)
 {
   /* USER CODE BEGIN Task4_Uart_write */
+	char *pDataRec=NULL;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+		xQueueReceive(write_queueHandle,&pDataRec,portMAX_DELAY);
+		HAL_UART_Transmit(&huart2,(uint8_t*)pDataRec,sizeof(menu),500);
   }
   /* USER CODE END Task4_Uart_write */
 }
+
+/* Callback01 function */
 
  /**
   * @brief  Period elapsed callback in non blocking mode
